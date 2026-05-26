@@ -220,10 +220,9 @@ def bayes_fit(
     console.print()
     console.print(f"trained on [bold]{payload['training_rows']}[/bold] laps; "
                   f"{payload['n_drivers']} drivers, {payload['n_teams']} teams, "
-                  f"{payload['n_eras']} eras")
-    console.print(f"sigma_driver (log): {payload['scale_summaries_log']['sigma_driver']:.4f}")
-    console.print(f"sigma_team   (log): {payload['scale_summaries_log']['sigma_team']:.4f}")
-    console.print(f"sigma_eps    (log): {payload['scale_summaries_log']['sigma_epsilon']:.4f}")
+                  f"{payload['n_seasons']} seasons")
+    console.print(f"sigma_drift (log): {payload['scale_summaries_log']['sigma_drift_skill']:.4f}")
+    console.print(f"sigma_eps   (log): {payload['scale_summaries_log']['sigma_epsilon']:.4f}")
     console.print()
     console.print("[bold]top 10 drivers by skill (lower = faster):")
     for r in payload["drivers"][:10]:

@@ -264,18 +264,28 @@ export type BayesDriver = {
   hdi_lo_seconds: number;
   hdi_hi_seconds: number;
   n_posterior_samples: number;
+  seasons_raced?: number[];
+  per_season?: Array<{
+    year: number;
+    value: number;
+    hdi_lo: number;
+    hdi_hi: number;
+    team: string | null;
+  }>;
 };
 
 export type BayesPayload = {
   schema_version: number;
+  model_version?: string;
   generated_at_utc: string;
   seasons_used: number[];
   reference_lap_seconds: number;
   training_rows: number;
   n_drivers: number;
   n_teams: number;
-  n_eras: number;
-  n_session_compound: number;
+  n_tracks?: number;
+  n_sessions?: number;
+  n_seasons?: number;
   sampler: {
     warmup: number;
     samples: number;
@@ -285,8 +295,9 @@ export type BayesPayload = {
     seed: number;
   };
   scale_summaries_log: {
-    sigma_driver: number;
-    sigma_team: number;
+    sigma_drift_skill?: number;
+    sigma_driver?: number;
+    sigma_team?: number;
     sigma_epsilon: number;
   };
   drivers: BayesDriver[];
@@ -294,9 +305,37 @@ export type BayesPayload = {
   elapsed_seconds: number;
 };
 
+export type CarPaceSeason = {
+  year: number;
+  value: number;
+  hdi_lo: number;
+  hdi_hi: number;
+};
+
+export type CarPaceTeam = {
+  team_name: string;
+  per_season: CarPaceSeason[];
+};
+
+export type CarPacePayload = {
+  schema_version: number;
+  generated_at_utc: string;
+  seasons_used: number[];
+  reference_lap_seconds: number;
+  teams: CarPaceTeam[];
+};
+
 export async function getBayesSkill(): Promise<BayesPayload | null> {
   try {
     return await fetchJson<BayesPayload>("/api/bayes/skill");
+  } catch {
+    return null;
+  }
+}
+
+export async function getBayesCarPace(): Promise<CarPacePayload | null> {
+  try {
+    return await fetchJson<CarPacePayload>("/api/bayes/car-pace");
   } catch {
     return null;
   }

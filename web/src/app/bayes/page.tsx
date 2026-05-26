@@ -57,7 +57,7 @@ export default async function BayesPage() {
         <SamplerCard
           label="Training rows"
           value={fmt.int(data.training_rows)}
-          sub={`${data.n_drivers} drivers · ${data.n_teams} teams · ${data.n_eras} eras`}
+          sub={`${data.n_drivers} drivers · ${data.n_teams} teams · ${data.n_seasons ?? data.seasons_used.length} seasons`}
         />
         <SamplerCard
           label="Posterior draws"
@@ -65,8 +65,8 @@ export default async function BayesPage() {
           sub={`NUTS · ${data.sampler.warmup} warmup · ${data.sampler.chains} chains`}
         />
         <SamplerCard
-          label="σ(driver) / σ(team) / σ(ε)  [log]"
-          value={`${data.scale_summaries_log.sigma_driver.toFixed(4)} / ${data.scale_summaries_log.sigma_team.toFixed(4)} / ${data.scale_summaries_log.sigma_epsilon.toFixed(4)}`}
+          label="σ(driver_drift) / σ(ε)  [log]"
+          value={`${(data.scale_summaries_log.sigma_drift_skill ?? data.scale_summaries_log.sigma_driver ?? 0).toFixed(4)} / ${data.scale_summaries_log.sigma_epsilon.toFixed(4)}`}
           sub="random-effect scales in log(lap_time)"
         />
       </section>

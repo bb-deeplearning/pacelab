@@ -172,6 +172,67 @@ def bayes_pair(a: str, b: str) -> Response:
     })
 
 
+@app.get("/api/bayes/car-pace")
+def bayes_car_pace() -> Response:
+    from pacelab.metrics.bayes import CAR_PACE_FILE
+    if not CAR_PACE_FILE.exists():
+        raise HTTPException(status_code=503, detail="car pace not built; run pacelab bayes fit")
+    return _json_response(json.loads(CAR_PACE_FILE.read_text()))
+
+
+@app.get("/api/bayes/counterfactual/{code}/{team}/{year}")
+def bayes_counterfactual(code: str, team: str, year: int) -> Response:
+    """What would driver `code` have done in `team`'s `year` car?
+
+    Computes the posterior over (driver_skill[code] + car_pace[team, year]),
+    expressed as seconds per lap above the field median. Compares to the
+    real driver of that team-season for context.
+    """
+    from pacelab.metrics.bayes import SKILL_FILE, CAR_PACE_FILE, TRACE_FILE
+    if not TRACE_FILE.exists():
+        raise HTTPException(status_code=503, detail="trace not built; run pacelab bayes fit")
+    import numpy as np
+    trace = np.load(TRACE_FILE)
+    drivers = trace["drivers"].tolist()
+    teams = trace["teams"].tolist()
+    years = trace["years"].tolist()
+    code_up = code.upper()
+    if code_up not in drivers:
+        raise HTTPException(status_code=404, detail=f"unknown driver {code_up}")
+    if team not in teams:
+        raise HTTPException(status_code=404, detail=f"unknown team {team}")
+    if year not in years:
+        raise HTTPException(status_code=404, detail=f"year {year} not in fit")
+    di = drivers.index(code_up)
+    ti = teams.index(team)
+    yi = years.index(year)
+
+    driver_skill = trace["driver_skill_seconds"][:, di, yi]  # posterior samples (year-specific)
+    car_pace = trace["car_pace_seconds"][:, ti, yi]
+    combined = driver_skill + car_pace
+
+    return _json_response({
+        "driver_code": code_up,
+        "team": team,
+        "year": year,
+        "driver_skill_year": {
+            "value": float(np.median(driver_skill)),
+            "hdi_lo": float(np.quantile(driver_skill, 0.025)),
+            "hdi_hi": float(np.quantile(driver_skill, 0.975)),
+        },
+        "car_pace_year": {
+            "value": float(np.median(car_pace)),
+            "hdi_lo": float(np.quantile(car_pace, 0.025)),
+            "hdi_hi": float(np.quantile(car_pace, 0.975)),
+        },
+        "combined_lap_advantage": {
+            "value": float(np.median(combined)),
+            "hdi_lo": float(np.quantile(combined, 0.025)),
+            "hdi_hi": float(np.quantile(combined, 0.975)),
+        },
+    })
+
+
 @app.get("/api/seasons")
 def seasons() -> Response:
     idx = _load_index()

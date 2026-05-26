@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { getCareer, type CareerSeasonEntry, type DriverCareer } from "@/lib/api";
+import { getBayesSkill, getCareer, type DriverCareer } from "@/lib/api";
 import { fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -11,24 +11,13 @@ interface PageProps {
   params: Promise<{ code: string }>;
 }
 
-const METRIC_DISPLAY: Array<{
-  id: keyof CareerSeasonEntry["metrics"];
-  label: string;
-  lowerIsBetter: boolean;
-  format: "signed-seconds" | "seconds" | "positions";
-}> = [
-  { id: "qualifying_pace_vs_teammate_s", label: "Qualifying pace vs teammate", lowerIsBetter: true,  format: "signed-seconds" },
-  { id: "race_pace_vs_teammate_s",       label: "Race pace vs teammate",      lowerIsBetter: true,  format: "signed-seconds" },
-  { id: "stint_consistency_residual_sd_s",label: "Stint consistency (SD)",     lowerIsBetter: true,  format: "seconds" },
-  { id: "consistency_delta_vs_teammate_s",label: "Consistency Δ vs teammate",  lowerIsBetter: true,  format: "signed-seconds" },
-  { id: "positions_gained_per_race",     label: "Positions gained / race",     lowerIsBetter: false, format: "positions" },
-];
-
 export default async function CareerPage({ params }: PageProps) {
   const { code: codeRaw } = await params;
   const code = codeRaw.toUpperCase();
-  const career = await getCareer(code);
-  if (!career) notFound();
+  const [bayes, descriptive] = await Promise.all([getBayesSkill(), getCareer(code)]);
+
+  const bayesDriver = bayes?.drivers.find((d) => d.driver_code === code);
+  if (!bayesDriver && !descriptive) notFound();
 
   return (
     <main className="min-h-dvh px-6 py-12 max-w-6xl mx-auto">
@@ -38,126 +27,79 @@ export default async function CareerPage({ params }: PageProps) {
             pacelab
           </Link>
           <span className="text-line-2">/</span>
-          <Link href="/alltime" className="hover:text-accent underline-offset-4 hover:underline">
-            all-time
-          </Link>
-          <span className="text-line-2">/</span>
-          <span className="text-muted">{career.driver_code}</span>
+          <span className="text-muted">{code}</span>
         </div>
         <h1 className="font-serif text-4xl md:text-5xl leading-tight">
-          {career.full_name} — career arc
+          {descriptive?.full_name ?? code}
         </h1>
-        <p className="text-muted leading-relaxed">
-          Each row is a season profile. The metric is the teammate-paired delta for that
-          season (so the comparator changes when the driver swaps teams). Hover a season
-          number to see the linked profile.
-        </p>
+        {bayesDriver && (
+          <p className="text-muted leading-relaxed max-w-3xl">
+            Career-pooled skill posterior:{" "}
+            <span className="font-mono text-accent">{fmt.signedSeconds(bayesDriver.skill_seconds_per_lap)}</span>{" "}
+            per lap relative to the implied field-median driver
+            (95% HDI [{bayesDriver.hdi_lo_seconds.toFixed(2)}, {bayesDriver.hdi_hi_seconds.toFixed(2)}]),
+            with car pace, track, era and lap-time noise explicitly subtracted.
+          </p>
+        )}
       </header>
 
-      <section className="mt-10">
-        <TeamTimeline career={career} />
-      </section>
+      {bayesDriver?.per_season && bayesDriver.per_season.length > 0 && (
+        <section className="mt-10">
+          <h2 className="font-serif text-2xl border-b border-line pb-2 mb-4">
+            Skill trajectory (Bayesian random walk posterior)
+          </h2>
+          <p className="text-muted text-sm mb-4 max-w-3xl">
+            Per-season posterior of <code className="font-mono text-accent">driver_skill</code>{" "}
+            for {code}. Bar is the 95% HDI; dot is the median. The team strip shows where
+            {" "}they raced that year — the skill estimate is car-adjusted, so the same
+            driver moving to a new team doesn&apos;t artificially jump.
+          </p>
+          <SkillTrajectory perSeason={bayesDriver.per_season} />
+        </section>
+      )}
 
-      <section className="mt-10">
-        <h2 className="font-serif text-2xl border-b border-line pb-2 mb-4">Per-season metrics</h2>
-        <div className="overflow-x-auto border border-line rounded-md bg-surface">
-          <table className="w-full font-mono text-xs min-w-[800px]">
-            <thead className="text-dim">
-              <tr className="border-b border-line">
-                <th className="text-left px-3 py-2 font-normal">metric</th>
-                {career.seasons.map((s) => (
-                  <th key={s.season} className="text-right px-3 py-2 font-normal">
-                    <Link
-                      href={`/drivers/${s.season}/${career.driver_code}`}
-                      className="text-accent hover:underline underline-offset-4"
-                    >
-                      {s.season}
-                    </Link>
-                  </th>
-                ))}
-              </tr>
-              <tr className="border-b border-line text-dim">
-                <th className="text-left px-3 py-2 font-normal text-[10px] uppercase tracking-wider">team</th>
-                {career.seasons.map((s) => (
-                  <th key={s.season} className="text-right px-3 py-2 font-normal">
-                    <span
-                      className="inline-block w-1 h-3 align-middle mr-1 rounded-sm"
-                      style={{ background: `#${s.team_color || "555"}` }}
-                    />
-                    {s.team_name.replace("Racing", "").replace("F1 Team", "").trim()}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {METRIC_DISPLAY.map((m) => (
-                <tr key={m.id} className="border-b border-line last:border-b-0">
-                  <td className="px-3 py-2 text-muted whitespace-nowrap">{m.label}</td>
-                  {career.seasons.map((s) => {
-                    const v = s.metrics[m.id]?.value;
-                    const n = s.metrics[m.id]?.n ?? 0;
-                    const ciLo = s.metrics[m.id]?.ci_lo;
-                    const ciHi = s.metrics[m.id]?.ci_hi;
-                    const valid = typeof v === "number" && Number.isFinite(v);
-                    const isGood = valid && (m.lowerIsBetter ? v < 0 : v > 0);
-                    const isBad = valid && (m.lowerIsBetter ? v > 0 : v < 0);
-                    const tone = isGood
-                      ? "text-positive"
-                      : isBad
-                      ? "text-negative"
-                      : "";
-                    const formatted =
-                      v == null || !Number.isFinite(v)
-                        ? "—"
-                        : m.format === "signed-seconds"
-                        ? fmt.signedSeconds(v)
-                        : m.format === "seconds"
-                        ? fmt.seconds(v)
-                        : fmt.positions(v);
-                    return (
-                      <td
-                        key={s.season}
-                        className={`px-3 py-2 text-right ${tone}`}
-                        title={
-                          ciLo != null && ciHi != null
-                            ? `n=${n} CI=[${ciLo.toFixed(3)}, ${ciHi.toFixed(3)}]`
-                            : `n=${n}`
-                        }
-                      >
-                        {formatted}
-                        <div className="text-[9px] text-dim font-mono">n={n}</div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-              <tr className="border-b border-line">
-                <td className="px-3 py-2 text-muted whitespace-nowrap">Teammates that season</td>
-                {career.seasons.map((s) => (
-                  <td key={s.season} className="px-3 py-2 text-right text-[10px] text-dim">
-                    {s.teammates.join(", ") || "—"}
-                  </td>
-                ))}
-              </tr>
-              <tr>
-                <td className="px-3 py-2 text-muted whitespace-nowrap">DNFs / starts</td>
-                {career.seasons.map((s) => (
-                  <td key={s.season} className="px-3 py-2 text-right text-dim">
-                    {s.reliability?.dnfs ?? "—"} / {s.reliability?.races_started ?? "—"}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {descriptive && descriptive.seasons.length > 0 && (
+        <section className="mt-12">
+          <h2 className="font-serif text-2xl border-b border-line pb-2 mb-4">
+            Team timeline
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {descriptive.seasons.map((s) => (
+              <div
+                key={s.season}
+                className="flex items-center gap-2 border border-line rounded-sm px-2 py-1 bg-surface"
+              >
+                <span
+                  className="w-1 h-4 rounded-sm"
+                  style={{ background: `#${s.team_color || "555"}` }}
+                />
+                <span className="font-mono text-xs text-muted">{s.season}</span>
+                <span className="font-mono text-xs">{s.team_name}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {descriptive && (
+        <section className="mt-12">
+          <details className="group">
+            <summary className="font-mono text-xs text-muted cursor-pointer hover:text-accent">
+              ▸ raw teammate-paired metrics per season (descriptive view)
+            </summary>
+            <div className="mt-4 overflow-x-auto border border-line rounded-md bg-surface">
+              <DescriptiveTable career={descriptive} />
+            </div>
+          </details>
+        </section>
+      )}
 
       <footer className="mt-16 pt-6 border-t border-line font-mono text-xs text-dim">
         <p>
-          {career.seasons.length} season(s) ingested.
-          {" "}
-          <Link href="/alltime" className="hover:text-accent underline-offset-4 hover:underline">
-            ← all-time leaderboards
+          {descriptive?.seasons.length ?? 0} season(s) in the descriptive frame ·{" "}
+          {bayesDriver?.seasons_raced?.length ?? 0} season(s) in the Bayesian fit ·{" "}
+          <Link href="/" className="hover:text-accent underline-offset-4 hover:underline">
+            ← all-time skill ranking
           </Link>
         </p>
       </footer>
@@ -165,28 +107,137 @@ export default async function CareerPage({ params }: PageProps) {
   );
 }
 
-function TeamTimeline({ career }: { career: DriverCareer }) {
-  if (career.seasons.length === 0) return null;
+function SkillTrajectory({
+  perSeason,
+}: {
+  perSeason: NonNullable<NonNullable<Awaited<ReturnType<typeof getBayesSkill>>>["drivers"][number]["per_season"]>;
+}) {
+  if (perSeason.length === 0) return null;
+
+  const widest = Math.max(
+    ...perSeason.flatMap((s) => [Math.abs(s.hdi_lo), Math.abs(s.hdi_hi)]),
+    0.5
+  );
+  const toPct = (v: number) => 50 + (v / widest) * 50;
+
   return (
-    <div className="border border-line rounded-md bg-surface p-4">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-dim mb-3">
-        team timeline
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {career.seasons.map((s) => (
-          <div
-            key={s.season}
-            className="flex items-center gap-2 border border-line rounded-sm px-2 py-1 bg-surface-2"
-          >
-            <span
-              className="w-1 h-4 rounded-sm"
-              style={{ background: `#${s.team_color || "555"}` }}
-            />
-            <span className="font-mono text-xs text-muted">{s.season}</span>
-            <span className="font-mono text-xs">{s.team_name}</span>
-          </div>
-        ))}
-      </div>
+    <div className="border border-line rounded-md bg-surface overflow-hidden">
+      <table className="w-full font-mono text-xs">
+        <thead className="text-dim">
+          <tr className="border-b border-line">
+            <th className="text-left px-3 py-2 font-normal w-16">year</th>
+            <th className="text-left px-3 py-2 font-normal">team</th>
+            <th className="text-right px-3 py-2 font-normal w-24">median</th>
+            <th className="text-right px-3 py-2 font-normal w-32 hidden md:table-cell">
+              95% HDI
+            </th>
+            <th className="px-3 py-2 font-normal">posterior</th>
+          </tr>
+        </thead>
+        <tbody>
+          {perSeason.map((s) => {
+            const med = s.value;
+            const isGood = med < 0;
+            const tone = med < 0 ? "text-positive" : med > 0 ? "text-negative" : "";
+            const leftPct = Math.max(0, toPct(s.hdi_lo));
+            const widthPct = Math.max(
+              0.5,
+              Math.min(100 - leftPct, toPct(s.hdi_hi) - leftPct)
+            );
+            const medianPct = Math.max(0, Math.min(100, toPct(med)));
+            return (
+              <tr key={s.year} className="border-b border-line last:border-b-0">
+                <td className="px-3 py-2 text-muted">{s.year}</td>
+                <td className="px-3 py-2 text-muted">{s.team ?? "—"}</td>
+                <td className={`px-3 py-2 text-right ${tone}`}>
+                  {fmt.signedSeconds(med)}
+                </td>
+                <td className="px-3 py-2 text-right text-dim hidden md:table-cell">
+                  [{s.hdi_lo.toFixed(2)}, {s.hdi_hi.toFixed(2)}]
+                </td>
+                <td className="px-3 py-2">
+                  <div className="relative h-2.5 bg-surface-2 rounded-sm overflow-hidden">
+                    <div
+                      className="absolute top-0 bottom-0 w-px bg-line-2"
+                      style={{ left: "50%" }}
+                    />
+                    <div
+                      className="absolute top-0 bottom-0 rounded-sm opacity-50"
+                      style={{
+                        left: `${leftPct}%`,
+                        width: `${widthPct}%`,
+                        backgroundColor: isGood
+                          ? "var(--color-positive)"
+                          : "var(--color-negative)",
+                      }}
+                    />
+                    <div
+                      className="absolute top-0 bottom-0"
+                      style={{
+                        left: `${medianPct}%`,
+                        width: "2px",
+                        backgroundColor: isGood
+                          ? "var(--color-positive)"
+                          : "var(--color-negative)",
+                        filter: "brightness(1.6)",
+                      }}
+                    />
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
+  );
+}
+
+function DescriptiveTable({ career }: { career: DriverCareer }) {
+  const metrics: Array<{
+    id: keyof DriverCareer["seasons"][number]["metrics"];
+    label: string;
+  }> = [
+    { id: "qualifying_pace_vs_teammate_s", label: "Qualifying Δ vs teammate" },
+    { id: "race_pace_vs_teammate_s", label: "Race-pace Δ vs teammate" },
+    { id: "stint_consistency_residual_sd_s", label: "Stint consistency (SD)" },
+  ];
+  return (
+    <table className="w-full font-mono text-xs min-w-[640px]">
+      <thead className="text-dim">
+        <tr className="border-b border-line">
+          <th className="text-left px-3 py-2 font-normal">metric</th>
+          {career.seasons.map((s) => (
+            <th key={s.season} className="text-right px-3 py-2 font-normal">
+              {s.season}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {metrics.map((m) => (
+          <tr key={m.id} className="border-b border-line last:border-b-0">
+            <td className="px-3 py-2 text-muted whitespace-nowrap">{m.label}</td>
+            {career.seasons.map((s) => {
+              const v = s.metrics[m.id]?.value;
+              const n = s.metrics[m.id]?.n ?? 0;
+              const valid = typeof v === "number" && Number.isFinite(v);
+              return (
+                <td
+                  key={s.season}
+                  className={
+                    "px-3 py-2 text-right " +
+                    (valid && v < 0 ? "text-positive" : valid && v > 0 ? "text-negative" : "")
+                  }
+                >
+                  {valid ? fmt.signedSeconds(v) : "—"}
+                  <div className="text-[9px] text-dim">n={n}</div>
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
