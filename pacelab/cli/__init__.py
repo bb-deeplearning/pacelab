@@ -87,6 +87,31 @@ def ingest_backfill(
     console.print(f"elapsed   : {report.elapsed_s/60:.1f} min")
 
 
+@ingest.command("telemetry")
+@click.option("--from", "from_year", type=int, default=INGEST.latest_year,
+              help="First season to pull telemetry for.")
+@click.option("--to", "to_year", type=int, default=INGEST.latest_year,
+              help="Last season to pull telemetry for.")
+@click.option("--session-types", default="R",
+              help="Session types for telemetry (default R-only since telemetry is heavy).")
+def ingest_telemetry(from_year: int, to_year: int, session_types: str) -> None:
+    """Pull telemetry for already-ingested sessions. Heavy; usually opt-in per year."""
+    from pacelab.ingest.telemetry import backfill_telemetry
+
+    types = tuple(t.strip().upper() for t in session_types.split(",") if t.strip())
+    console.print(f"[bold]pulling telemetry[/bold] {from_year}..{to_year} sessions={list(types)}")
+    report = backfill_telemetry(from_year, to_year, session_types=types)
+    console.print()
+    console.print(f"sessions attempted : [bold]{report.sessions_attempted}[/bold]")
+    console.print(f"sessions succeeded : [green]{report.sessions_succeeded}[/green]")
+    console.print(f"lap frames written : [cyan]{report.n_lap_frames}[/cyan]")
+    console.print(f"failed             : [red]{len(report.failed)}[/red]")
+    if report.failed:
+        for key, err in report.failed[:10]:
+            console.print(f"  {key}: {err[:100]}")
+    console.print(f"elapsed            : {report.elapsed_s/60:.1f} min")
+
+
 @ingest.command("status")
 def ingest_status() -> None:
     """Show how many sessions are ingested per year."""

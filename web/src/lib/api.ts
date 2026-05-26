@@ -96,6 +96,11 @@ export type DriverProfile = {
     dry_pace_vs_teammate_s: MetricBlock;
     wet_minus_dry_s: MetricBlock;
   };
+  style?: {
+    throttle_smoothness_delta: MetricBlock & { unit: string };
+    brake_dwell_delta_s: MetricBlock & { unit: string };
+    full_throttle_fraction_delta: MetricBlock & { unit: string };
+  };
   track_type?: {
     pace_vs_teammate_by_archetype_s: Record<string, MetricBlock & { label: string }>;
   };

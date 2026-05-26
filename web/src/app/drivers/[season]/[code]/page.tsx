@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { getDriver, type MetricBlock } from "@/lib/api";
+import { getDriver, type DriverProfile, type MetricBlock } from "@/lib/api";
 import { deltaTone, fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -184,6 +184,36 @@ export default async function DriverPage({ params }: PageProps) {
             </section>
           )}
 
+        {/* Style (telemetry-derived) */}
+        {profile.style && hasFiniteStyle(profile.style) && (
+          <section>
+            <SectionHeader
+              title="Driving style fingerprint"
+              kicker="telemetry-derived deltas vs teammate (phase 2 — partial coverage)"
+            />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <MetricCard
+                label="Throttle smoothness"
+                unit={profile.style.throttle_smoothness_delta.unit}
+                block={profile.style.throttle_smoothness_delta}
+                format="signed-seconds"
+              />
+              <MetricCard
+                label="Brake dwell"
+                unit={profile.style.brake_dwell_delta_s.unit}
+                block={profile.style.brake_dwell_delta_s}
+                format="signed-seconds"
+              />
+              <MetricCard
+                label="Full-throttle fraction"
+                unit={profile.style.full_throttle_fraction_delta.unit}
+                block={profile.style.full_throttle_fraction_delta}
+                format="signed-seconds"
+              />
+            </div>
+          </section>
+        )}
+
         {/* Per-session tables */}
         <section>
           <SectionHeader
@@ -220,6 +250,16 @@ export default async function DriverPage({ params }: PageProps) {
         </p>
       </footer>
     </main>
+  );
+}
+
+function hasFiniteStyle(
+  style: NonNullable<DriverProfile["style"]>
+): boolean {
+  return (
+    Number.isFinite(style.throttle_smoothness_delta.value) ||
+    Number.isFinite(style.brake_dwell_delta_s.value) ||
+    Number.isFinite(style.full_throttle_fraction_delta.value)
   );
 }
 

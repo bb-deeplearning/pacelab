@@ -31,6 +31,11 @@ from pacelab.metrics.race_pace import (
 )
 from pacelab.metrics.recovery import driver_dnf_rate, driver_recovery_estimate, race_recovery
 from pacelab.metrics.stats import Estimate
+from pacelab.metrics.style import (
+    driver_style_estimates,
+    per_lap_style_features,
+    teammate_delta_per_session,
+)
 from pacelab.metrics.track_type import driver_pace_by_archetype, enriched_fits
 from pacelab.metrics.weather import driver_wet_vs_dry, wet_session_keys
 
@@ -44,6 +49,41 @@ INDEX_FILE = DERIVED_DIR / "index.json"
 
 def _estimate_dict(est: Estimate) -> dict[str, float | int]:
     return est.to_dict()
+
+
+def _empty_estimate() -> dict[str, float | int]:
+    return {"value": float("nan"), "ci_lo": float("nan"), "ci_hi": float("nan"), "n": 0}
+
+
+def _style_block(style: dict[str, Estimate]) -> dict[str, Any]:
+    def m(key: str, definition: str, unit: str, lower_is_better: bool) -> dict[str, Any]:
+        est = style.get(key)
+        return {
+            **(_estimate_dict(est) if est else _empty_estimate()),
+            "unit": unit,
+            "definition": definition,
+            "lower_is_better": lower_is_better,
+        }
+    return {
+        "throttle_smoothness_delta": m(
+            "throttle_smoothness_delta",
+            "Median per-race delta of throttle-derivative RMS vs teammate. Negative = the driver "
+            "modulates the throttle more smoothly than their teammate.",
+            "%/s", lower_is_better=True,
+        ),
+        "brake_dwell_delta_s": m(
+            "brake_dwell_delta_s",
+            "Median per-race delta of mean brake-event duration. Positive = stays on the brakes "
+            "deeper into corners than teammate (a trail-braker signature).",
+            "seconds", lower_is_better=False,
+        ),
+        "full_throttle_fraction_delta": m(
+            "full_throttle_fraction_delta",
+            "Median per-race delta of full-throttle lap fraction. More circuit-dependent than "
+            "skill but informative when on the same car.",
+            "fraction of lap", lower_is_better=False,
+        ),
+    }
 
 
 def _per_session_qual_rows(deltas: pl.DataFrame, driver_code: str) -> list[dict[str, Any]]:
@@ -81,6 +121,7 @@ def _build_driver_profile(
     recovery: pl.DataFrame,
     wet_keys: set[str],
     sessions_df: pl.DataFrame,
+    style_pairs: pl.DataFrame,
 ) -> dict[str, Any]:
 
     qual_est = driver_qualifying_estimate(qual_deltas, driver_code)
@@ -92,6 +133,9 @@ def _build_driver_profile(
     dnfs, races = driver_dnf_rate(recovery, driver_code)
     wet_est, dry_est, wet_minus_dry = driver_wet_vs_dry(fits, driver_code, wet_keys)
     by_archetype = driver_pace_by_archetype(fits, [season], driver_code)
+    style = (
+        driver_style_estimates(style_pairs, driver_code) if not style_pairs.is_empty() else {}
+    )
 
     teammates_set: set[str] = set()
     teammates_set.update(qual_deltas.filter(pl.col("driver_code") == driver_code)["teammate_code"].to_list())
@@ -175,6 +219,7 @@ def _build_driver_profile(
                 for arch, est in by_archetype.items()
             },
         },
+        "style": _style_block(style),
         "wet_vs_dry": {
             "wet_pace_vs_teammate_s": {
                 **_estimate_dict(wet_est),
@@ -243,6 +288,18 @@ def build_all(seasons: list[int]) -> dict[str, Any]:
             .unique(subset=["driver_code"], keep="last")
         )
 
+        # Phase 2: telemetry-derived style fingerprints (only if telemetry exists).
+        style_features = per_lap_style_features(season_list)
+        style_pairs = (
+            teammate_delta_per_session(style_features, data.results(season_list))
+            if not style_features.is_empty() else style_features
+        )
+        wet_keys = wet_session_keys(season_list)
+        season_drivers = (
+            drivers.filter(pl.col("year") == season)
+            .unique(subset=["driver_code"], keep="last")
+        )
+
         for row in season_drivers.iter_rows(named=True):
             dc = row["driver_code"]
             if not dc:
@@ -267,6 +324,7 @@ def build_all(seasons: list[int]) -> dict[str, Any]:
                 recovery=recovery if not recovery.is_empty() else pl.DataFrame(),
                 wet_keys=wet_keys,
                 sessions_df=sessions_df,
+                style_pairs=style_pairs,
             )
             (PROFILES_DIR / f"{season}_{dc}.json").write_text(json.dumps(profile, indent=2, default=str))
             by_season[season].append(dc)
