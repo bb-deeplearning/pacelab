@@ -104,35 +104,24 @@ def build_dataset(seasons: list[int]) -> tuple[pl.DataFrame, dict[str, Any]]:
     if clean.is_empty():
         return clean, {}
 
-    # Build integer indices for each categorical column.
+    # Build integer indices.
     driver_codes = sorted(clean["driver_code"].unique().to_list())
     team_names = sorted(clean["team_name"].unique().to_list())
-    session_compound = (
-        clean.with_columns(
-            (pl.col("session_key") + "::" + pl.col("compound")).alias("session_compound")
-        )
-        ["session_compound"].unique().to_list()
-    )
-    session_compound.sort()
+    sessions_list = sorted(clean["session_key"].unique().to_list())
+    compounds = sorted(clean["compound"].unique().to_list())
 
     driver_idx = {c: i for i, c in enumerate(driver_codes)}
     team_idx = {t: i for i, t in enumerate(team_names)}
-    sc_idx = {sc: i for i, sc in enumerate(session_compound)}
+    session_idx = {s: i for i, s in enumerate(sessions_list)}
+    compound_idx = {c: i for i, c in enumerate(compounds)}
     n_eras = int(clean["era_id"].max()) + 1
 
     clean = clean.with_columns([
-        (pl.col("session_key") + "::" + pl.col("compound")).map_elements(
-            lambda x: sc_idx[x], return_dtype=pl.Int32
-        ).alias("sc_idx"),
-        pl.col("driver_code").map_elements(
-            lambda x: driver_idx[x], return_dtype=pl.Int32
-        ).alias("driver_idx"),
-        pl.col("team_name").map_elements(
-            lambda x: team_idx[x], return_dtype=pl.Int32
-        ).alias("team_idx"),
+        pl.col("driver_code").replace_strict(driver_idx, return_dtype=pl.Int32).alias("driver_idx"),
+        pl.col("team_name").replace_strict(team_idx, return_dtype=pl.Int32).alias("team_idx"),
+        pl.col("session_key").replace_strict(session_idx, return_dtype=pl.Int32).alias("session_idx"),
+        pl.col("compound").replace_strict(compound_idx, return_dtype=pl.Int32).alias("compound_idx"),
     ])
-
-    # Team-era id is a combined index for (team, era) — that's what alpha_team is keyed on.
     team_era = clean.with_columns(
         (pl.col("team_idx") * n_eras + pl.col("era_id")).alias("team_era_idx")
     )
@@ -140,7 +129,8 @@ def build_dataset(seasons: list[int]) -> tuple[pl.DataFrame, dict[str, Any]]:
     coords = {
         "drivers": driver_codes,
         "teams": team_names,
-        "session_compound": session_compound,
+        "sessions": sessions_list,
+        "compounds": compounds,
         "n_eras": n_eras,
         "n_team_era": len(team_names) * n_eras,
     }
@@ -186,13 +176,14 @@ def fit_model(
         df = pl.concat(sampled) if sampled else df
 
     log.info(
-        "training rows=%d drivers=%d teams=%d session_compounds=%d eras=%d",
+        "training rows=%d drivers=%d teams=%d sessions=%d compounds=%d eras=%d",
         df.height, len(coords["drivers"]), len(coords["teams"]),
-        len(coords["session_compound"]), coords["n_eras"],
+        len(coords["sessions"]), len(coords["compounds"]), coords["n_eras"],
     )
 
     y = df["log_lap_time"].to_numpy().astype(np.float32)
-    sc = df["sc_idx"].to_numpy().astype(np.int32)
+    session = df["session_idx"].to_numpy().astype(np.int32)
+    compound = df["compound_idx"].to_numpy().astype(np.int32)
     driver = df["driver_idx"].to_numpy().astype(np.int32)
     team_era = df["team_era_idx"].to_numpy().astype(np.int32)
     stint_age = df["stint_age"].to_numpy().astype(np.float32)
@@ -200,35 +191,50 @@ def fit_model(
 
     n_drivers = len(coords["drivers"])
     n_team_era = coords["n_team_era"]
-    n_sc = len(coords["session_compound"])
+    n_sessions = len(coords["sessions"])
+    n_compounds = len(coords["compounds"])
 
     def model() -> None:
-        # Non-centred parameterisation for the random effects.
-        # Tight priors: in log(lap_time) space, a typical between-driver
-        # spread is ~0.003 log-units (~0.3s on a 95s lap). Team variance is
-        # similar. Lap-to-lap noise is dominated by sector/condition jitter
-        # in the range 0.003-0.010 log-units.
-        sigma_driver = numpyro.sample("sigma_driver", dist.HalfNormal(0.005))
-        sigma_team = numpyro.sample("sigma_team", dist.HalfNormal(0.010))
-        sigma_epsilon = numpyro.sample("sigma_epsilon", dist.HalfNormal(0.020))
-
-        # The session-compound intercept is the biggest term — absorbs the
-        # absolute lap time of the session. Wide prior centred on log(95s).
-        mu_sc = numpyro.sample(
-            "mu_sc",
-            dist.Normal(jnp.full(n_sc, jnp.log(95.0)), 0.5),
+        # Per-race baseline pace. Wide prior centred on log(95s) absorbs the
+        # absolute lap time of the session (track + weather + race fuel).
+        mu_session = numpyro.sample(
+            "mu_session",
+            dist.Normal(jnp.full(n_sessions, jnp.log(95.0)), 0.5),
         )
+        # Compound effect, shared across sessions. Soft.
+        comp_offset = numpyro.sample(
+            "compound_offset",
+            dist.Normal(jnp.zeros(n_compounds), 0.05),
+        )
+
+        # Random-effect scales. We anchor sigma_team much tighter than sigma_driver
+        # because with the per-session intercept, sigma_team has weak
+        # identification (within a session, team and session are confounded
+        # if all team members are in the same session). The driver effect IS
+        # identified within each session through teammate variation.
+        sigma_team = numpyro.sample("sigma_team", dist.HalfNormal(0.005))
+        sigma_driver = numpyro.sample("sigma_driver", dist.HalfNormal(0.015))
+        sigma_epsilon = numpyro.sample("sigma_epsilon", dist.HalfNormal(0.05))
+
         driver_z = numpyro.sample("driver_z", dist.Normal(jnp.zeros(n_drivers), 1.0))
         team_z = numpyro.sample("team_z", dist.Normal(jnp.zeros(n_team_era), 1.0))
 
-        alpha_driver = numpyro.deterministic("alpha_driver", driver_z * sigma_driver)
-        alpha_team = numpyro.deterministic("alpha_team", team_z * sigma_team)
+        # Sum-to-zero soft constraint (location ambiguity).
+        raw_driver = driver_z * sigma_driver
+        raw_team = team_z * sigma_team
+        alpha_driver = numpyro.deterministic(
+            "alpha_driver", raw_driver - jnp.mean(raw_driver)
+        )
+        alpha_team = numpyro.deterministic(
+            "alpha_team", raw_team - jnp.mean(raw_team)
+        )
 
         beta_stint = numpyro.sample("beta_stint", dist.Normal(0.0, 0.001))
         gamma_fuel = numpyro.sample("gamma_fuel", dist.Normal(0.0, 0.001))
 
         mu = (
-            mu_sc[sc]
+            mu_session[session]
+            + comp_offset[compound]
             + alpha_team[team_era]
             + alpha_driver[driver]
             + beta_stint * stint_age
@@ -256,10 +262,12 @@ def fit_model(
     sigma_drv = float(np.median(samples["sigma_driver"]))
     sigma_tm = float(np.median(samples["sigma_team"]))
 
-    # Convert back from log-space delta to approximate seconds-per-lap at a
-    # ~95s reference lap.
+    # The skill is the alpha_driver effect on log(lap_time). Approximate the
+    # impact in seconds at a 95s reference lap: delta_s ≈ alpha * 95.
+    # (We're already centred at zero via the sum-to-zero constraint, so a
+    # negative value means faster than the implied median driver.)
     ref_lap_s = 95.0
-    alpha_d_seconds = (np.exp(alpha_d) - 1.0) * ref_lap_s
+    alpha_d_seconds = alpha_d * ref_lap_s
 
     medians = np.median(alpha_d_seconds, axis=0)
     hdi_lo = np.quantile(alpha_d_seconds, 0.025, axis=0)
@@ -295,7 +303,8 @@ def fit_model(
         "n_drivers": len(coords["drivers"]),
         "n_teams": len(coords["teams"]),
         "n_eras": coords["n_eras"],
-        "n_session_compound": len(coords["session_compound"]),
+        "n_sessions": len(coords["sessions"]),
+        "n_compounds": len(coords["compounds"]),
         "sampler": {
             "warmup": n_warmup,
             "samples": n_samples,
