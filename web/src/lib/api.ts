@@ -69,6 +69,61 @@ export type TeammatesPayload = {
   pairs: TeammatePair[];
 };
 
+export type SeasonMetricSnapshot = {
+  value: number | null;
+  ci_lo: number | null;
+  ci_hi: number | null;
+  n: number;
+};
+
+export type CareerSeasonEntry = {
+  season: number;
+  team_name: string;
+  team_color: string;
+  teammates: string[];
+  metrics: Record<string, SeasonMetricSnapshot>;
+  reliability?: { dnfs: number; races_started: number; dnf_rate: number };
+};
+
+export type DriverCareer = {
+  driver_code: string;
+  full_name: string;
+  country_code: string;
+  seasons: CareerSeasonEntry[];
+};
+
+export type CareersPayload = {
+  schema_version: number;
+  generated_at_utc: string;
+  drivers: DriverCareer[];
+};
+
+export type AlltimeEntry = {
+  driver_code: string;
+  full_name: string;
+  latest_team: string;
+  latest_team_color: string;
+  value: number | null;
+  ci_lo: number | null;
+  ci_hi: number | null;
+  n: number;
+  seasons_count: number;
+  seasons: number[];
+  teams: string[];
+};
+
+export type AlltimePayload = {
+  schema_version: number;
+  generated_at_utc: string;
+  metrics: Array<{
+    id: string;
+    label: string;
+    section: string;
+    lower_is_better: boolean;
+  }>;
+  leaderboards: Record<string, AlltimeEntry[]>;
+};
+
 export type DriverProfile = {
   schema_version: number;
   generated_at_utc: string;
@@ -182,6 +237,22 @@ export async function getLeaderboards(season: number): Promise<LeaderboardPayloa
 export async function getTeammates(season: number): Promise<TeammatesPayload | null> {
   try {
     return await fetchJson<TeammatesPayload>(`/api/seasons/${season}/teammates`);
+  } catch {
+    return null;
+  }
+}
+
+export async function getCareer(code: string): Promise<DriverCareer | null> {
+  try {
+    return await fetchJson<DriverCareer>(`/api/careers/${code.toUpperCase()}`);
+  } catch {
+    return null;
+  }
+}
+
+export async function getAlltime(): Promise<AlltimePayload | null> {
+  try {
+    return await fetchJson<AlltimePayload>("/api/alltime");
   } catch {
     return null;
   }

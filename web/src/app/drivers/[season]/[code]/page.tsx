@@ -41,6 +41,12 @@ export default async function DriverPage({ params }: PageProps) {
           >
             ← all drivers
           </Link>
+          <Link
+            href={`/careers/${profile.driver.code}`}
+            className="ml-4 font-mono text-xs text-muted hover:text-accent underline-offset-4 hover:underline"
+          >
+            career arc →
+          </Link>
 
           <div className="mt-6 flex flex-wrap items-end gap-6 md:gap-12">
             <div

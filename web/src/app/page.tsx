@@ -75,25 +75,38 @@ export default async function Home() {
                 .sort((a, b) => a[0].localeCompare(b[0]))
                 .flatMap(([team, drivers]) =>
                   drivers.map((d) => (
-                    <Link
+                    <div
                       key={`${season}-${d.driver_code}`}
-                      href={`/drivers/${season}/${d.driver_code}`}
-                      className="group flex items-center gap-4 border border-line rounded-md p-4 bg-surface hover:bg-surface-2 hover:border-line-2 transition-colors"
+                      className="group flex items-stretch gap-4 border border-line rounded-md p-4 bg-surface hover:bg-surface-2 hover:border-line-2 transition-colors"
                     >
                       <div
-                        className="w-1 self-stretch rounded-sm"
+                        className="w-1 rounded-sm"
                         style={{ background: `#${d.team_color || "555"}` }}
                       />
                       <div className="min-w-0 flex-1">
                         <div className="font-mono text-[10px] text-dim uppercase tracking-wider">
                           {team}
                         </div>
-                        <div className="font-serif text-xl truncate">{d.full_name}</div>
+                        <Link
+                          href={`/drivers/${season}/${d.driver_code}`}
+                          className="font-serif text-xl truncate block hover:underline underline-offset-4"
+                        >
+                          {d.full_name}
+                        </Link>
+                        <Link
+                          href={`/careers/${d.driver_code}`}
+                          className="font-mono text-[10px] text-dim hover:text-accent underline-offset-4 hover:underline"
+                        >
+                          career →
+                        </Link>
                       </div>
-                      <div className="font-mono text-2xl text-muted group-hover:text-accent transition-colors">
+                      <Link
+                        href={`/drivers/${season}/${d.driver_code}`}
+                        className="font-mono text-2xl text-muted group-hover:text-accent transition-colors self-center"
+                      >
                         {d.driver_code}
-                      </div>
-                    </Link>
+                      </Link>
+                    </div>
                   ))
                 )}
             </div>
@@ -126,6 +139,12 @@ function Header() {
         compare any two drivers in a season: <span className="text-dim">/compare/2024/VER-vs-HAM</span>
       </p>
       <div className="flex flex-wrap gap-x-6 gap-y-2 font-mono text-xs text-muted pt-2">
+        <Link
+          href="/alltime"
+          className="text-accent hover:underline underline-offset-4"
+        >
+          → all-time leaderboards
+        </Link>
         <a
           href="https://github.com/bb-deeplearning/pacelab"
           className="hover:text-accent underline-offset-4 hover:underline"

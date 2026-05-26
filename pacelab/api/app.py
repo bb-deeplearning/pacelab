@@ -113,6 +113,35 @@ def season_teammates(season: int) -> Response:
     return _json_response(json.loads(p.read_text()))
 
 
+@app.get("/api/careers")
+def careers() -> Response:
+    from pacelab.metrics.career import CAREERS_FILE
+    if not CAREERS_FILE.exists():
+        raise HTTPException(status_code=503, detail="careers not built. run: pacelab metrics build")
+    return _json_response(json.loads(CAREERS_FILE.read_text()))
+
+
+@app.get("/api/careers/{code}")
+def driver_career(code: str) -> Response:
+    from pacelab.metrics.career import CAREERS_FILE
+    if not CAREERS_FILE.exists():
+        raise HTTPException(status_code=503, detail="careers not built")
+    payload = json.loads(CAREERS_FILE.read_text())
+    code = code.upper()
+    for d in payload.get("drivers", []):
+        if d.get("driver_code") == code:
+            return _json_response(d)
+    raise HTTPException(status_code=404, detail=f"no career for {code}")
+
+
+@app.get("/api/alltime")
+def alltime() -> Response:
+    from pacelab.metrics.career import ALLTIME_FILE
+    if not ALLTIME_FILE.exists():
+        raise HTTPException(status_code=503, detail="alltime not built")
+    return _json_response(json.loads(ALLTIME_FILE.read_text()))
+
+
 @app.get("/api/seasons")
 def seasons() -> Response:
     idx = _load_index()
