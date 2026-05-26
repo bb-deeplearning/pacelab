@@ -16,6 +16,7 @@ from typing import Any
 import polars as pl
 
 from pacelab import data
+from pacelab.circuits import ARCHETYPE_LABELS
 from pacelab.config import DERIVED_DIR
 from pacelab.metrics.consistency import (
     driver_consistency_estimate,
@@ -30,6 +31,7 @@ from pacelab.metrics.race_pace import (
 )
 from pacelab.metrics.recovery import driver_dnf_rate, driver_recovery_estimate, race_recovery
 from pacelab.metrics.stats import Estimate
+from pacelab.metrics.track_type import driver_pace_by_archetype, enriched_fits
 from pacelab.metrics.weather import driver_wet_vs_dry, wet_session_keys
 
 log = logging.getLogger("pacelab.metrics")
@@ -89,6 +91,7 @@ def _build_driver_profile(
     recovery_est = driver_recovery_estimate(recovery, driver_code)
     dnfs, races = driver_dnf_rate(recovery, driver_code)
     wet_est, dry_est, wet_minus_dry = driver_wet_vs_dry(fits, driver_code, wet_keys)
+    by_archetype = driver_pace_by_archetype(fits, [season], driver_code)
 
     teammates_set: set[str] = set()
     teammates_set.update(qual_deltas.filter(pl.col("driver_code") == driver_code)["teammate_code"].to_list())
@@ -159,6 +162,19 @@ def _build_driver_profile(
                 for compound, est in deg_by_compound.items()
             },
         },
+        "track_type": {
+            "pace_vs_teammate_by_archetype_s": {
+                arch: {
+                    **_estimate_dict(est),
+                    "label": ARCHETYPE_LABELS.get(arch, arch),
+                    "definition": "Median per-race pace delta vs teammate at "
+                                  f"{ARCHETYPE_LABELS.get(arch, arch).lower()} circuits this season. "
+                                  "95% bootstrap CI over races.",
+                    "lower_is_better": True,
+                }
+                for arch, est in by_archetype.items()
+            },
+        },
         "wet_vs_dry": {
             "wet_pace_vs_teammate_s": {
                 **_estimate_dict(wet_est),
@@ -218,10 +234,14 @@ def build_all(seasons: list[int]) -> dict[str, Any]:
 
         qual_deltas = per_session_qualifying_deltas(season_list)
         fits = stint_pair_fits(season_list)
+        fits_enriched = enriched_fits(fits, season_list) if not fits.is_empty() else fits
         consistency = per_stint_consistency(season_list)
         recovery = race_recovery(season_list)
         wet_keys = wet_session_keys(season_list)
-        season_drivers = drivers.filter(pl.col("year") == season)
+        season_drivers = (
+            drivers.filter(pl.col("year") == season)
+            .unique(subset=["driver_code"], keep="last")
+        )
 
         for row in season_drivers.iter_rows(named=True):
             dc = row["driver_code"]
@@ -242,7 +262,7 @@ def build_all(seasons: list[int]) -> dict[str, Any]:
                         "delta_s": pl.Float64, "compared_segment": pl.Int32,
                     }
                 ),
-                fits=fits if not fits.is_empty() else pl.DataFrame(),
+                fits=fits_enriched if not fits_enriched.is_empty() else pl.DataFrame(),
                 consistency=consistency if not consistency.is_empty() else pl.DataFrame(),
                 recovery=recovery if not recovery.is_empty() else pl.DataFrame(),
                 wet_keys=wet_keys,

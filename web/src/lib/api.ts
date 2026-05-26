@@ -55,6 +55,9 @@ export type DriverProfile = {
     dry_pace_vs_teammate_s: MetricBlock;
     wet_minus_dry_s: MetricBlock;
   };
+  track_type?: {
+    pace_vs_teammate_by_archetype_s: Record<string, MetricBlock & { label: string }>;
+  };
   reliability: {
     dnfs: number;
     races_started: number;

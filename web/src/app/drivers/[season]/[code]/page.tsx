@@ -160,6 +160,30 @@ export default async function DriverPage({ params }: PageProps) {
           </div>
         </section>
 
+        {/* Track-type breakdown */}
+        {profile.track_type &&
+          Object.keys(profile.track_type.pace_vs_teammate_by_archetype_s).length > 0 && (
+            <section>
+              <SectionHeader
+                title="By circuit archetype"
+                kicker="pace delta vs teammate, partitioned by track type"
+              />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {Object.entries(profile.track_type.pace_vs_teammate_by_archetype_s).map(
+                  ([arch, block]) => (
+                    <MetricCard
+                      key={arch}
+                      label={block.label}
+                      unit="seconds per lap"
+                      block={block}
+                      format="signed-seconds"
+                    />
+                  )
+                )}
+              </div>
+            </section>
+          )}
+
         {/* Per-session tables */}
         <section>
           <SectionHeader
