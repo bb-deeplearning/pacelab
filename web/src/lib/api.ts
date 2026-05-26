@@ -257,3 +257,47 @@ export async function getAlltime(): Promise<AlltimePayload | null> {
     return null;
   }
 }
+
+export type BayesDriver = {
+  driver_code: string;
+  skill_seconds_per_lap: number;
+  hdi_lo_seconds: number;
+  hdi_hi_seconds: number;
+  n_posterior_samples: number;
+};
+
+export type BayesPayload = {
+  schema_version: number;
+  generated_at_utc: string;
+  seasons_used: number[];
+  reference_lap_seconds: number;
+  training_rows: number;
+  n_drivers: number;
+  n_teams: number;
+  n_eras: number;
+  n_session_compound: number;
+  sampler: {
+    warmup: number;
+    samples: number;
+    chains: number;
+    target_accept: number;
+    subsample_per_session: number | null;
+    seed: number;
+  };
+  scale_summaries_log: {
+    sigma_driver: number;
+    sigma_team: number;
+    sigma_epsilon: number;
+  };
+  drivers: BayesDriver[];
+  pairwise_probability_a_faster_than_b: Record<string, Record<string, number>>;
+  elapsed_seconds: number;
+};
+
+export async function getBayesSkill(): Promise<BayesPayload | null> {
+  try {
+    return await fetchJson<BayesPayload>("/api/bayes/skill");
+  } catch {
+    return null;
+  }
+}

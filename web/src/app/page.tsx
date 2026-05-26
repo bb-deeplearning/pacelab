@@ -145,6 +145,12 @@ function Header() {
         >
           → all-time leaderboards
         </Link>
+        <Link
+          href="/bayes"
+          className="text-accent hover:underline underline-offset-4"
+        >
+          → bayesian skill posterior
+        </Link>
         <a
           href="https://github.com/bb-deeplearning/pacelab"
           className="hover:text-accent underline-offset-4 hover:underline"

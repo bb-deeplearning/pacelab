@@ -180,3 +180,55 @@ def serve_api(host: str, port: int, reload: bool) -> None:
 
 if __name__ == "__main__":
     main(prog_name="pacelab")
+
+
+# bayes group ────────────────────────────────────────────────────────────────
+@main.group()
+def bayes() -> None:
+    """Hierarchical Bayesian driver-skill model (phase 3)."""
+
+
+@bayes.command("fit")
+@click.option("--seasons", default="2024,2025",
+              help="Comma-separated seasons to include in the fit.")
+@click.option("--warmup", default=500, type=int)
+@click.option("--samples", default=1000, type=int)
+@click.option("--chains", default=2, type=int)
+@click.option("--target-accept", default=0.85, type=float)
+@click.option("--subsample", default=80, type=int,
+              help="Max laps kept per (session, driver). 0 disables subsampling.")
+def bayes_fit(
+    seasons: str, warmup: int, samples: int, chains: int,
+    target_accept: float, subsample: int,
+) -> None:
+    """Fit the hierarchical Bayesian driver-skill model on the listed seasons."""
+    from pacelab.metrics.bayes import fit_model
+
+    season_list = [int(s.strip()) for s in seasons.split(",") if s.strip()]
+    console.print(
+        f"[bold]fitting Bayesian skill model[/bold] seasons={season_list} "
+        f"chains={chains} samples={samples}"
+    )
+    payload = fit_model(
+        season_list,
+        n_warmup=warmup,
+        n_samples=samples,
+        n_chains=chains,
+        target_accept=target_accept,
+        subsample_per_session=(subsample if subsample > 0 else None),
+    )
+    console.print()
+    console.print(f"trained on [bold]{payload['training_rows']}[/bold] laps; "
+                  f"{payload['n_drivers']} drivers, {payload['n_teams']} teams, "
+                  f"{payload['n_eras']} eras")
+    console.print(f"sigma_driver (log): {payload['scale_summaries_log']['sigma_driver']:.4f}")
+    console.print(f"sigma_team   (log): {payload['scale_summaries_log']['sigma_team']:.4f}")
+    console.print(f"sigma_eps    (log): {payload['scale_summaries_log']['sigma_epsilon']:.4f}")
+    console.print()
+    console.print("[bold]top 10 drivers by skill (lower = faster):")
+    for r in payload["drivers"][:10]:
+        console.print(
+            f"  {r['driver_code']:>4}  {r['skill_seconds_per_lap']:+.3f}s/lap  "
+            f"HDI=[{r['hdi_lo_seconds']:+.3f}, {r['hdi_hi_seconds']:+.3f}]"
+        )
+    console.print(f"\nelapsed: {payload['elapsed_seconds']/60:.1f} min")

@@ -142,6 +142,36 @@ def alltime() -> Response:
     return _json_response(json.loads(ALLTIME_FILE.read_text()))
 
 
+@app.get("/api/bayes/skill")
+def bayes_skill() -> Response:
+    from pacelab.metrics.bayes import SKILL_FILE
+    if not SKILL_FILE.exists():
+        raise HTTPException(status_code=503, detail="bayesian fit not run yet. run: pacelab bayes fit")
+    return _json_response(json.loads(SKILL_FILE.read_text()))
+
+
+@app.get("/api/bayes/pair/{a}/{b}")
+def bayes_pair(a: str, b: str) -> Response:
+    from pacelab.metrics.bayes import SKILL_FILE
+    if not SKILL_FILE.exists():
+        raise HTTPException(status_code=503, detail="bayesian fit not run yet")
+    payload = json.loads(SKILL_FILE.read_text())
+    a_up = a.upper()
+    b_up = b.upper()
+    probs = payload.get("pairwise_probability_a_faster_than_b", {})
+    if a_up not in probs or b_up not in probs.get(a_up, {}):
+        raise HTTPException(status_code=404, detail=f"no posterior for {a_up} vs {b_up}")
+    drivers_by_code = {d["driver_code"]: d for d in payload["drivers"]}
+    return _json_response({
+        "a": a_up,
+        "b": b_up,
+        "p_a_faster_than_b": probs[a_up][b_up],
+        "a_skill": drivers_by_code.get(a_up),
+        "b_skill": drivers_by_code.get(b_up),
+        "seasons_used": payload.get("seasons_used"),
+    })
+
+
 @app.get("/api/seasons")
 def seasons() -> Response:
     idx = _load_index()
