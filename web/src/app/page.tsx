@@ -132,12 +132,12 @@ function Header() {
         >
           github.com/bb-deeplearning/pacelab
         </a>
-        <a
-          href="https://github.com/bb-deeplearning/pacelab/blob/main/docs/methodology.md"
+        <Link
+          href="/methodology"
           className="hover:text-accent underline-offset-4 hover:underline"
         >
           methodology
-        </a>
+        </Link>
       </div>
     </header>
   );
