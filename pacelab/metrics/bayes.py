@@ -271,27 +271,33 @@ def fit_model(
             "era_track",
             dist.Normal(jnp.zeros((2, n_tracks)), 0.05),
         )
-        # Session-level offset: weather, fuel, formation lap, accidents.
-        # Tight prior so it doesn't absorb structural variance. ~100 params.
-        session_offset = numpyro.sample(
-            "session_offset",
-            dist.Normal(jnp.zeros(n_sessions), 0.01),
-        )
+        # NO per-session offset — omitted on purpose. Letting the model
+        # fit a free per-session intercept absorbs all between-session
+        # pace variance and starves both car_pace and driver_skill. Without
+        # it, car_pace[team,season] gets the structural between-session
+        # variance and is identified through teammate variation + transfers.
+        # Weather / fuel / red flags get attributed to epsilon, which is
+        # the right place for them.
 
-        # Car pace per (team, season). Wide prior — cars genuinely differ
-        # by several seconds per lap. Identified through teammate variation
-        # within session and driver transfers across seasons.
-        car_pace = numpyro.sample(
-            "car_pace",
-            dist.Normal(jnp.zeros(n_teams * n_years), 0.05),
+        # Car pace per (team, season). Sum-to-zero against mu_track to
+        # remove the location ambiguity. Wide prior — cars differ by
+        # several seconds.
+        car_z = numpyro.sample("car_z", dist.Normal(jnp.zeros(n_teams * n_years), 1.0))
+        sigma_car = numpyro.sample("sigma_car", dist.HalfNormal(0.05))
+        raw_car = car_z * sigma_car
+        car_pace = numpyro.deterministic(
+            "car_pace", raw_car - jnp.mean(raw_car)
         )
 
         # Driver skill as a Gaussian random walk across seasons.
         # No bell curve assumption — let the data shape the trajectory.
-        sigma_drift = numpyro.sample("sigma_drift", dist.HalfNormal(0.005))
+        # sigma_drift bigger than v1 because the data needs to be able to
+        # show year-on-year skill changes of several tenths (Vettel's
+        # 2018->2020 decline, Hamilton's 2024 drop, Verstappen's rise).
+        sigma_drift = numpyro.sample("sigma_drift", dist.HalfNormal(0.015))
         skill_init = numpyro.sample(
             "skill_init",
-            dist.Normal(jnp.zeros(n_drivers), 0.01),
+            dist.Normal(jnp.zeros(n_drivers), 0.02),
         )
         # Innovations: shape (n_drivers, n_years - 1)
         innovations = numpyro.sample(
@@ -299,11 +305,15 @@ def fit_model(
             dist.Normal(jnp.zeros((n_drivers, max(n_years - 1, 1))), 1.0),
         )
         # cumulative-sum the innovations across years, scaled by sigma_drift.
-        # Result: shape (n_drivers, n_years). Flatten to (n_drivers * n_years).
+        # Result: shape (n_drivers, n_years).
         skill = jnp.concatenate(
             [skill_init[:, None], skill_init[:, None] + jnp.cumsum(innovations * sigma_drift, axis=1)],
             axis=1,
         ) if n_years > 1 else skill_init[:, None]
+        # Sum-to-zero across drivers within each season for identifiability
+        # against mu_track and car_pace. Skill is interpretable as a delta
+        # from the implied field-median driver in that season.
+        skill = skill - jnp.mean(skill, axis=0, keepdims=True)
         driver_skill = numpyro.deterministic(
             "driver_skill", skill.reshape(-1)
         )
@@ -318,7 +328,6 @@ def fit_model(
         mu = (
             mu_track[track]
             + era_track[era, track]
-            + session_offset[session]
             + car_pace[team_season]
             + driver_skill[driver_season]
             + beta_stint * stint_age
