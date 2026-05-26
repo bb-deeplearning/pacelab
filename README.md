@@ -72,23 +72,52 @@ Each metric shows: the value, the data window, the sample size, the comparator (
 
 ## Quick start
 
+### Prerequisites
+
+* Python 3.11+ (3.11 specifically works; 3.12 and 3.13 should work but are untested).
+* [uv](https://github.com/astral-sh/uv) is recommended for the Python environment. `pip` works too.
+* [bun](https://bun.sh) for the web UI. `npm` and `pnpm` work too.
+* ~30 GB free disk for the full 2018→present FastF1 cache.
+
+### Set up
+
 ```bash
-# 1. install (uses uv for env management — pip works too)
+# Python env (uv recommended)
 uv venv --python 3.11
 source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# 2. backfill the data layer (this takes a while; FastF1 fetches and caches everything)
+# Web env
+cd web && bun install && cd ..
+```
+
+### Ingest, build metrics, run
+
+```bash
+# 1. Backfill data from FastF1 — most recent seasons first so you can ship
+#    a useful site before the older years are pulled.
+#    The FastF1/Ergast 500-calls/hour rate-limit will abort the run; resume
+#    by re-running the same command after ~hour.
 pacelab ingest backfill --from 2024 --to 2025
+pacelab ingest backfill --from 2022 --to 2023
+pacelab ingest backfill --from 2018 --to 2021
 
-# 3. compute metrics
-pacelab metrics build
+# 2. Compute metric profiles per season.
+pacelab metrics build --seasons 2018,2019,2020,2021,2022,2023,2024,2025
 
-# 4. run the API
-pacelab serve api --host 127.0.0.1 --port 8200
+# 3. Run the API + web together.
+./scripts/dev.sh
+# api:  http://127.0.0.1:8200
+# web:  http://127.0.0.1:4400
+```
 
-# 5. run the web UI
-cd web && bun install && bun dev
+### CLI cheat sheet
+
+```bash
+pacelab ingest status              # what's been ingested per year
+pacelab ingest backfill --help     # ingest flags
+pacelab metrics build --seasons 2024,2025
+pacelab serve api --port 8200
 ```
 
 ## Data sources

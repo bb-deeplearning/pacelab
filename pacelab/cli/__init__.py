@@ -52,13 +52,23 @@ def ingest() -> None:
 @click.option("--session-types", default="Q,R,S,SQ",
               help="Comma-separated session types: Q,R,S,SQ,FP1,FP2,FP3.")
 @click.option("--force", is_flag=True, help="Re-ingest sessions that already exist.")
-def ingest_backfill(from_year: int, to_year: int, session_types: str, force: bool) -> None:
+@click.option("--pause-on-rate-limit", type=float, default=None,
+              help="If set, pause this many seconds and retry on rate limit. "
+                   "By default we abort the run when rate-limited.")
+def ingest_backfill(
+    from_year: int, to_year: int, session_types: str, force: bool,
+    pause_on_rate_limit: float | None,
+) -> None:
     """Backfill seasons FROM..TO (inclusive). Skips completed sessions unless --force."""
     from pacelab.ingest import backfill
 
     types = tuple(t.strip().upper() for t in session_types.split(",") if t.strip())
     console.print(f"[bold]ingesting[/bold] {from_year}..{to_year} sessions={list(types)}")
-    report = backfill(from_year, to_year, session_types=types, force=force)
+    report = backfill(
+        from_year, to_year,
+        session_types=types, force=force,
+        pause_on_rate_limit_s=pause_on_rate_limit,
+    )
     console.print()
     console.rule("[bold]ingest report")
     console.print(f"attempted : [bold]{report.attempted}[/bold]")

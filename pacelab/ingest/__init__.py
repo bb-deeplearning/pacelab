@@ -328,11 +328,24 @@ def ingest_session(plan: PlannedSession) -> SessionFrames | None:
     """Download and convert a single session. Returns None on hard failure."""
     import fastf1
 
+    try:
+        from fastf1.req import RateLimitExceededError  # type: ignore
+    except ImportError:  # pragma: no cover
+        class RateLimitExceededError(Exception):  # type: ignore
+            pass
+
     key = session_key(plan.year, plan.round, plan.session_type)
     try:
         s = fastf1.get_session(plan.year, plan.round, plan.session_type)
         s.load(laps=True, telemetry=False, weather=True, messages=False)
+    except RateLimitExceededError as e:
+        # Surface as a typed exception so the orchestrator can pause.
+        raise
     except Exception as e:
+        msg = str(e)
+        if "500 calls/h" in msg or "rate" in msg.lower() and "limit" in msg.lower():
+            # Treat as rate-limit too — FastF1 sometimes wraps the error string.
+            raise RuntimeError(f"RATE_LIMIT: {msg}")
         log.warning("load failed for %s: %s", key, e)
         return None
 
@@ -393,15 +406,30 @@ def backfill(
     to_year: int,
     session_types: Iterable[str] | None = None,
     force: bool = False,
+    pause_on_rate_limit_s: float | None = None,
 ) -> IngestReport:
-    """Ingest all sessions in a year range, skipping completed ones unless forced."""
+    """Ingest all sessions in a year range, skipping completed ones unless forced.
+
+    By default we abort the run as soon as the FastF1/Ergast 500-calls/hour
+    rate-limit hits, because resuming after a 65-minute sleep is rarely what
+    the operator wants. Pass `pause_on_rate_limit_s` to keep retrying.
+    """
     configure_fastf1()
     session_types = tuple(session_types) if session_types else INGEST.session_types
 
+    try:
+        from fastf1.req import RateLimitExceededError  # type: ignore
+    except ImportError:  # pragma: no cover
+        class RateLimitExceededError(Exception):  # type: ignore
+            pass
+
     t0 = time.time()
     report = IngestReport()
+    aborted = False
 
     for year in range(from_year, to_year + 1):
+        if aborted:
+            break
         try:
             plans = planned_sessions(year, session_types)
         except Exception as e:
@@ -414,16 +442,44 @@ def backfill(
                 report.skipped += 1
                 continue
             log.info("ingesting %s — %s", key, plan.event_name)
-            try:
-                frames = ingest_session(plan)
-                if frames is None:
-                    report.failed.append((key, "load returned None"))
-                    continue
-                persist(plan, frames)
-                report.succeeded += 1
-            except Exception as e:
-                log.exception("failed to ingest %s", key)
-                report.failed.append((key, str(e)))
+            attempts = 0
+            while True:
+                attempts += 1
+                try:
+                    frames = ingest_session(plan)
+                    if frames is None:
+                        report.failed.append((key, "load returned None"))
+                    else:
+                        persist(plan, frames)
+                        report.succeeded += 1
+                    break
+                except (RateLimitExceededError, RuntimeError) as e:
+                    is_rate = (
+                        isinstance(e, RateLimitExceededError)
+                        or "RATE_LIMIT" in str(e)
+                        or "500 calls/h" in str(e)
+                    )
+                    if is_rate:
+                        if pause_on_rate_limit_s and attempts < 3:
+                            log.warning(
+                                "rate limit on %s; sleeping %d min (retry %d/3)",
+                                key, int(pause_on_rate_limit_s / 60), attempts,
+                            )
+                            time.sleep(pause_on_rate_limit_s)
+                            continue
+                        log.error("hit FastF1 rate limit at %s; aborting run", key)
+                        report.failed.append((key, "rate limit reached; aborting"))
+                        aborted = True
+                        break
+                    log.exception("failed to ingest %s", key)
+                    report.failed.append((key, str(e)))
+                    break
+                except Exception as e:
+                    log.exception("failed to ingest %s", key)
+                    report.failed.append((key, str(e)))
+                    break
+            if aborted:
+                break
 
     report.elapsed_s = time.time() - t0
     return report
