@@ -95,6 +95,15 @@ def driver_profile(season: int, code: str) -> Response:
     return _json_response(json.loads(path.read_text()))
 
 
+@app.get("/api/seasons/{season}/leaderboards")
+def season_leaderboards(season: int) -> Response:
+    from pacelab.metrics.leaderboards import LEADERBOARDS_DIR
+    p = LEADERBOARDS_DIR / f"{season}.json"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"no leaderboards for {season}")
+    return _json_response(json.loads(p.read_text()))
+
+
 @app.get("/api/seasons")
 def seasons() -> Response:
     idx = _load_index()

@@ -28,6 +28,30 @@ export type IndexPayload = {
   drivers: DriverIndexEntry[];
 };
 
+export type LeaderboardEntry = {
+  driver_code: string;
+  full_name: string;
+  team_name: string;
+  team_color: string;
+  value: number | null;
+  ci_lo: number | null;
+  ci_hi: number | null;
+  n: number;
+};
+
+export type LeaderboardPayload = {
+  schema_version: number;
+  generated_at_utc: string;
+  season: number;
+  metrics: Array<{
+    id: string;
+    label: string;
+    section: string;
+    lower_is_better: boolean;
+  }>;
+  leaderboards: Record<string, LeaderboardEntry[]>;
+};
+
 export type DriverProfile = {
   schema_version: number;
   generated_at_utc: string;
@@ -123,4 +147,12 @@ export async function getIndex(): Promise<IndexPayload> {
 
 export async function getDriver(season: number, code: string): Promise<DriverProfile> {
   return fetchJson<DriverProfile>(`/api/drivers/${season}/${code.toUpperCase()}`);
+}
+
+export async function getLeaderboards(season: number): Promise<LeaderboardPayload | null> {
+  try {
+    return await fetchJson<LeaderboardPayload>(`/api/seasons/${season}/leaderboards`);
+  } catch {
+    return null;
+  }
 }

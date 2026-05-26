@@ -286,6 +286,11 @@ def build_all(seasons: list[int]) -> dict[str, Any]:
         "drivers": index_entries,
     }, indent=2, default=str))
 
+    # Build per-season leaderboards from the freshly-written profiles.
+    from pacelab.metrics.leaderboards import build_season_leaderboard
+    for s in sorted(by_season.keys()):
+        build_season_leaderboard(s)
+
     return {
         "n_drivers": len(index_entries),
         "n_seasons": len(by_season),

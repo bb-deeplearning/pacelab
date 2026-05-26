@@ -57,9 +57,17 @@ export default async function Home() {
             <div className="flex items-baseline gap-4 border-b border-line pb-2 mb-6">
               <h2 className="font-mono text-sm text-muted">SEASON</h2>
               <h2 className="font-serif text-3xl">{season}</h2>
-              <span className="ml-auto font-mono text-xs text-dim">
+            <div className="ml-auto flex items-center gap-3">
+              <Link
+                href={`/seasons/${season}`}
+                className="font-mono text-xs px-3 py-1 border border-line rounded-sm text-muted hover:border-accent hover:text-accent transition-colors"
+              >
+                view {season} leaderboards →
+              </Link>
+              <span className="font-mono text-xs text-dim">
                 {list.length} drivers
               </span>
+            </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
