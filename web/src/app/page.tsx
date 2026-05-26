@@ -122,6 +122,9 @@ function Header() {
         confidence interval. Wherever possible, the comparison is teammate-paired so the
         car-driver collinearity is broken. Punditry is fine; this site is not punditry.
       </p>
+      <p className="font-mono text-xs text-muted pt-1">
+        compare any two drivers in a season: <span className="text-dim">/compare/2024/VER-vs-HAM</span>
+      </p>
       <div className="flex flex-wrap gap-x-6 gap-y-2 font-mono text-xs text-muted pt-2">
         <a
           href="https://github.com/bb-deeplearning/pacelab"
