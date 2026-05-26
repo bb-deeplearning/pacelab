@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { getIndex, getLeaderboards, type LeaderboardEntry } from "@/lib/api";
+import { getIndex, getLeaderboards, getTeammates, type LeaderboardEntry, type TeammatePair } from "@/lib/api";
 import { fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,11 @@ export default async function SeasonLeaderboards({ params }: PageProps) {
   const season = Number(seasonRaw);
   if (!Number.isFinite(season)) notFound();
 
-  const [leaderboards, index] = await Promise.all([getLeaderboards(season), getIndex()]);
+  const [leaderboards, teammates, index] = await Promise.all([
+    getLeaderboards(season),
+    getTeammates(season),
+    getIndex(),
+  ]);
   if (!leaderboards) notFound();
 
   const seasons = index.seasons.slice().sort((a, b) => b - a);
@@ -58,6 +62,22 @@ export default async function SeasonLeaderboards({ params }: PageProps) {
         </div>
       </header>
 
+      {teammates && teammates.pairs.length > 0 && (
+        <section className="mt-12">
+          <div className="border-b border-line pb-2 mb-4 flex items-baseline gap-3">
+            <h2 className="font-serif text-2xl">Teammate scoreboard</h2>
+            <span className="font-mono text-xs text-muted">
+              head-to-head where both drivers were in the same garage all season
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {teammates.pairs.map((p) => (
+              <TeammateCard key={`${p.team_name}-${p.driver_a}-${p.driver_b}`} pair={p} season={season} />
+            ))}
+          </div>
+        </section>
+      )}
+
       {leaderboards.metrics.map((metric) => {
         const rows = leaderboards.leaderboards[metric.id] ?? [];
         return (
@@ -73,6 +93,71 @@ export default async function SeasonLeaderboards({ params }: PageProps) {
         );
       })}
     </main>
+  );
+}
+
+function TeammateCard({ pair, season }: { pair: TeammatePair; season: number }) {
+  return (
+    <article className="border border-line rounded-md bg-surface p-4">
+      <div className="font-mono text-[10px] uppercase tracking-widest text-dim mb-2">
+        {pair.team_name}
+      </div>
+      <div className="flex items-center justify-between gap-4 mb-3">
+        <Link
+          href={`/drivers/${season}/${pair.driver_a}`}
+          className="font-serif text-xl text-accent hover:underline underline-offset-4"
+        >
+          {pair.driver_a}
+        </Link>
+        <Link
+          href={`/compare/${season}/${pair.driver_a}-vs-${pair.driver_b}`}
+          className="font-mono text-[10px] text-muted hover:text-accent underline-offset-4 hover:underline"
+        >
+          compare ↔
+        </Link>
+        <Link
+          href={`/drivers/${season}/${pair.driver_b}`}
+          className="font-serif text-xl text-accent hover:underline underline-offset-4"
+        >
+          {pair.driver_b}
+        </Link>
+      </div>
+      <table className="w-full font-mono text-xs">
+        <tbody>
+          <ScoreRow label="Qualifying" left={pair.qualifying.a_wins} right={pair.qualifying.b_wins} />
+          <ScoreRow label="Race pace"  left={pair.race_pace.a_wins} right={pair.race_pace.b_wins} />
+          <ScoreRow label="Finish pos" left={pair.finish_position.a_wins} right={pair.finish_position.b_wins} />
+          <ScoreRow label="DNFs"       left={pair.dnfs.a} right={pair.dnfs.b} muted />
+        </tbody>
+      </table>
+    </article>
+  );
+}
+
+function ScoreRow({
+  label, left, right, muted = false,
+}: { label: string; left: number; right: number; muted?: boolean }) {
+  const total = left + right;
+  const leftWidth = total > 0 ? (left / total) * 100 : 50;
+  const isWinner = (side: "l" | "r") =>
+    !muted && total > 0 && ((side === "l" && left > right) || (side === "r" && right > left));
+
+  return (
+    <tr className="border-b border-line last:border-b-0">
+      <td className={`py-1.5 pr-2 text-right w-12 ${isWinner("l") ? "text-positive" : muted ? "text-dim" : ""}`}>
+        {left}
+      </td>
+      <td className="py-1.5 w-1/2">
+        <div className="flex h-1.5 bg-surface-2 overflow-hidden rounded-sm">
+          <div className={muted ? "bg-warning" : "bg-positive"} style={{ width: `${leftWidth}%`, backgroundColor: muted ? "var(--color-warning)" : "var(--color-positive)" }} />
+          <div className="bg-negative" style={{ width: `${100 - leftWidth}%`, backgroundColor: muted ? "transparent" : "var(--color-negative)" }} />
+        </div>
+      </td>
+      <td className={`py-1.5 pl-2 text-left w-12 ${isWinner("r") ? "text-positive" : muted ? "text-dim" : ""}`}>
+        {right}
+      </td>
+      <td className="py-1.5 pl-3 text-dim text-[10px] uppercase tracking-wider">{label}</td>
+    </tr>
   );
 }
 

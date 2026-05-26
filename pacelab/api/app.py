@@ -104,6 +104,15 @@ def season_leaderboards(season: int) -> Response:
     return _json_response(json.loads(p.read_text()))
 
 
+@app.get("/api/seasons/{season}/teammates")
+def season_teammates(season: int) -> Response:
+    from pacelab.metrics.teammates_h2h import TEAMMATES_DIR
+    p = TEAMMATES_DIR / f"{season}.json"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"no teammate h2h for {season}")
+    return _json_response(json.loads(p.read_text()))
+
+
 @app.get("/api/seasons")
 def seasons() -> Response:
     idx = _load_index()

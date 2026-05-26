@@ -288,8 +288,10 @@ def build_all(seasons: list[int]) -> dict[str, Any]:
 
     # Build per-season leaderboards from the freshly-written profiles.
     from pacelab.metrics.leaderboards import build_season_leaderboard
+    from pacelab.metrics.teammates_h2h import build_season_teammate_h2h
     for s in sorted(by_season.keys()):
         build_season_leaderboard(s)
+        build_season_teammate_h2h(s)
 
     return {
         "n_drivers": len(index_entries),

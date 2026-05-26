@@ -24,7 +24,9 @@ def race_recovery(seasons: list[int]) -> pl.DataFrame:
 
     res = results.join(race_keys, on="session_key", how="inner")
     res = res.with_columns([
-        pl.col("classified_position").str.to_uppercase().is_in(["DNF", "DNS", "DSQ", "NC"]).alias("dnf"),
+        pl.col("classified_position").str.to_uppercase().is_in(
+            ["DNF", "DNS", "DSQ", "NC", "R", "D", "W", "E", "F"]
+        ).alias("dnf"),
     ])
     # When DNF, finish_position is set to last classified slot (FastF1 already does this).
     return res.select([

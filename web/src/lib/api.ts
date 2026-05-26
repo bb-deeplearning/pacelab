@@ -52,6 +52,23 @@ export type LeaderboardPayload = {
   leaderboards: Record<string, LeaderboardEntry[]>;
 };
 
+export type TeammatePair = {
+  team_name: string;
+  driver_a: string;
+  driver_b: string;
+  qualifying: { a_wins: number; b_wins: number; compared: number };
+  race_pace: { a_wins: number; b_wins: number; compared: number };
+  finish_position: { a_wins: number; b_wins: number; compared: number };
+  dnfs: { a: number; b: number };
+};
+
+export type TeammatesPayload = {
+  schema_version: number;
+  generated_at_utc: string;
+  season: number;
+  pairs: TeammatePair[];
+};
+
 export type DriverProfile = {
   schema_version: number;
   generated_at_utc: string;
@@ -152,6 +169,14 @@ export async function getDriver(season: number, code: string): Promise<DriverPro
 export async function getLeaderboards(season: number): Promise<LeaderboardPayload | null> {
   try {
     return await fetchJson<LeaderboardPayload>(`/api/seasons/${season}/leaderboards`);
+  } catch {
+    return null;
+  }
+}
+
+export async function getTeammates(season: number): Promise<TeammatesPayload | null> {
+  try {
+    return await fetchJson<TeammatesPayload>(`/api/seasons/${season}/teammates`);
   } catch {
     return null;
   }
